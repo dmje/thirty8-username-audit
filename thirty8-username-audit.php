@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Thirty8 Duplicate Users
  * Description: READ-ONLY diagnostic tool. Finds users with duplicate email addresses across the network. No data is modified.
- * Version: 2.1.0
+ * Version: 2.2.0
  * Author: Thirty8 Digital
  * Network: true
  */
@@ -13,6 +13,19 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 if ( is_network_admin() ) {
     add_action( 'network_admin_menu', 't8ua_add_network_menu' );
+    add_action( 'admin_init', 't8ua_maybe_export_csv' );
+}
+
+function t8ua_maybe_export_csv() {
+    if (
+        isset( $_GET['page'] ) && $_GET['page'] === 'thirty8-username-audit' &&
+        isset( $_GET['export'] ) && $_GET['export'] === 'csv' &&
+        current_user_can( 'manage_network_users' )
+    ) {
+        $groups = t8ua_get_duplicate_users();
+        t8ua_export_csv( $groups );
+        exit;
+    }
 }
 
 function t8ua_add_network_menu() {
@@ -70,7 +83,10 @@ function t8ua_get_duplicate_users() {
             $sites = get_blogs_of_user( $user['ID'] );
             $site_list = [];
             foreach ( $sites as $site ) {
-                $site_list[] = $site->domain . $site->path;
+                $site_list[] = [
+                    'label'     => $site->domain . $site->path,
+                    'admin_url' => 'https://' . $site->domain . $site->path . 'wp-admin/users.php?s=' . rawurlencode( $user['user_login'] ),
+                ];
             }
 
             $accounts[] = [
@@ -98,10 +114,6 @@ function t8ua_render_page() {
     $account_count = array_sum( array_column( $groups, 'count' ) );
 
 
-    if ( isset( $_GET['export'] ) && $_GET['export'] === 'csv' && current_user_can( 'manage_network_users' ) ) {
-        t8ua_export_csv( $groups );
-        exit;
-    }
     ?>
     <div class="wrap">
         <h1>Duplicate Users <span style="font-size:13px;font-weight:400;color:#666;">— read-only diagnostic</span></h1>
@@ -160,7 +172,7 @@ function t8ua_render_page() {
                                     <td>
                                         <?php if ( ! empty( $account['sites'] ) ) : ?>
                                             <?php foreach ( $account['sites'] as $site ) : ?>
-                                                <span class="t8ua-site"><?php echo esc_html( $site ); ?></span>
+                                                <a href="<?php echo esc_url( $site['admin_url'] ); ?>" target="_blank" class="t8ua-site t8ua-site-link"><?php echo esc_html( $site['label'] ); ?></a>
                                             <?php endforeach; ?>
                                         <?php else : ?>
                                             <em style="color:#999">No sites</em>
@@ -271,6 +283,15 @@ function t8ua_render_page() {
             padding: 1px 6px;
             margin: 1px 3px 1px 0;
         }
+        a.t8ua-site-link {
+            color: #2271b1;
+            text-decoration: none;
+        }
+        a.t8ua-site-link:hover {
+            background: #2271b1;
+            border-color: #2271b1;
+            color: #fff;
+        }
         .t8ua-table {
             border: none !important;
             border-radius: 0 !important;
@@ -294,7 +315,7 @@ function t8ua_export_csv( $groups ) {
                 $account['login'],
                 substr( $account['registered'], 0, 10 ),
                 $account['post_count'],
-                implode( ', ', $account['sites'] ),
+                implode( ', ', array_column( $account['sites'], 'label' ) ),
             ] );
         }
         // blank row between groups for readability
